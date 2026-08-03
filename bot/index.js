@@ -26,6 +26,10 @@ async function showAdminPanel(bot, chatId, messageId) {
   const storeName = process.env.STORE_NAME || 'PanzzStore';
   const baseUrl = getBaseUrl();
   const miniAppUrl = `${baseUrl}/miniapp`;
+  const isHttps = miniAppUrl.startsWith('https://');
+  const adminBtn = isHttps
+    ? { text: '🖥️ Buka Mini App Admin', web_app: { url: miniAppUrl } }
+    : { text: '🖥️ Buka Mini App Admin', url: miniAppUrl };
 
   const text = `👑 <b>PANEL ADMINISTRATOR</b>\n\n` +
     `Selamat datang di menu administrator bot <b>${storeName}</b>.\n\n` +
@@ -33,7 +37,7 @@ async function showAdminPanel(bot, chatId, messageId) {
 
   const keyboard = {
     inline_keyboard: [
-      [{ text: '🖥️ Buka Mini App Admin', web_app: { url: miniAppUrl } }],
+      [adminBtn],
       [
         { text: '📢 Kirim Broadcast', callback_data: 'admin_init_broadcast' },
         { text: '📊 Statistik Penjualan', callback_data: 'admin_view_stats' }

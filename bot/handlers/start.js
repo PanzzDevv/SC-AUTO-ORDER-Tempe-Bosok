@@ -46,10 +46,15 @@ function buildMainKeyboard(chatId) {
   const isAdmin = String(chatId) === String(process.env.ADMIN_TELEGRAM_ID);
   const baseUrl = getBaseUrl();
   const miniAppUrl = `${baseUrl}/miniapp`;
+  const isHttps = miniAppUrl.startsWith('https://');
+  const adminBtn = isHttps
+    ? { text: '⚙️ Panel Admin', web_app: { url: miniAppUrl } }
+    : { text: '⚙️ Panel Admin', url: miniAppUrl };
+
   return {
     inline_keyboard: [
       [{ text: '➤ Beli Akun TikTok', callback_data: 'menu_beli' }],
-      ...(isAdmin ? [[{ text: '⚙️ Panel Admin', web_app: { url: miniAppUrl } }]] : []),
+      ...(isAdmin ? [[adminBtn]] : []),
     ],
   };
 }
