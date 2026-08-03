@@ -45,11 +45,11 @@ const { getBaseUrl } = require('../../server/urlHelper');
 function buildMainKeyboard(chatId) {
   const isAdmin = String(chatId) === String(process.env.ADMIN_TELEGRAM_ID);
   const baseUrl = getBaseUrl();
+  const isValidHttps = baseUrl.startsWith('https://') && !baseUrl.includes('localhost') && !baseUrl.includes('127.0.0.1');
   const miniAppUrl = `${baseUrl}/miniapp`;
-  const isHttps = miniAppUrl.startsWith('https://');
-  const adminBtn = isHttps
+  const adminBtn = isValidHttps
     ? { text: '⚙️ Panel Admin', web_app: { url: miniAppUrl } }
-    : { text: '⚙️ Panel Admin', url: miniAppUrl };
+    : { text: '⚙️ Panel Admin (Setting HTTPS)', callback_data: 'admin_need_https' };
 
   return {
     inline_keyboard: [

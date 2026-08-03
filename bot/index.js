@@ -25,11 +25,11 @@ console.log(`🤖 ${process.env.STORE_NAME || 'PanzzStore'} Bot is running...`);
 async function showAdminPanel(bot, chatId, messageId) {
   const storeName = process.env.STORE_NAME || 'PanzzStore';
   const baseUrl = getBaseUrl();
+  const isValidHttps = baseUrl.startsWith('https://') && !baseUrl.includes('localhost') && !baseUrl.includes('127.0.0.1');
   const miniAppUrl = `${baseUrl}/miniapp`;
-  const isHttps = miniAppUrl.startsWith('https://');
-  const adminBtn = isHttps
+  const adminBtn = isValidHttps
     ? { text: '🖥️ Buka Mini App Admin', web_app: { url: miniAppUrl } }
-    : { text: '🖥️ Buka Mini App Admin', url: miniAppUrl };
+    : { text: '🖥️ Buka Mini App Admin (Setting HTTPS)', callback_data: 'admin_need_https' };
 
   const text = `👑 <b>PANEL ADMINISTRATOR</b>\n\n` +
     `Selamat datang di menu administrator bot <b>${storeName}</b>.\n\n` +
@@ -624,6 +624,24 @@ bot.on('callback_query', async (query) => {
         break;
 
       // ─── ADMIN MAIN PANEL ACTIONS ─────────────────────────────────────────────
+      case data === 'admin_need_https': {
+        const baseUrl = getBaseUrl();
+        const text = `⚠️ <b>Fitur Mini App Membutuhkan URL HTTPS Public!</b>\n\n` +
+          `Saat ini bot berjalan pada Base URL: <code>${escapeHTML(baseUrl)}</code>\n\n` +
+          `Telegram mewajibkan tombol Mini App menggunakan domain HTTPS public (bukan localhost).\n\n` +
+          `💡 <b>Cara Mengatasi:</b>\n` +
+          `1. <b>Testing Lokal:</b> Jalankan Ngrok (contoh: <code>ngrok http 8080</code>), lalu isi variabel di file <code>.env</code>:\n` +
+          `   <code>SERVER_URL=https://xxxx.ngrok-free.app</code>\n\n` +
+          `2. <b>Production Hosting:</b> Deploy bot ke Railway, Render, atau VPS dengan domain HTTPS.`;
+        await bot.sendMessage(chatId, text, {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[{ text: '« Kembali ke Menu', callback_data: 'admin_cancel_input' }]]
+          }
+        });
+        break;
+      }
+
       case data === 'admin_init_broadcast': {
         session.waitingForBantuanMsg = false;
         session.waitingForAdminUserMsg = false;
