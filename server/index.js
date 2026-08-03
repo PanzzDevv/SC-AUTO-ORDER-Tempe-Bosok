@@ -87,8 +87,6 @@ const { verifyLicense } = require('./license');
     }
   }, 60 * 60 * 1000); // Check every hour
 
-  app.get('/', (req, res) => res.redirect('/miniapp'));
-
   // Serve Mini App (inject ADMIN_IDS so frontend can do local check)
   const serveMiniAppHandler = serveHtmlWithStoreName(path.join(__dirname, '../dashboard/miniapp.html'), (html) => {
     return html.replace(
@@ -97,19 +95,17 @@ const { verifyLicense } = require('./license');
     );
   });
 
-  app.get([
-    '/miniapp',
-    '/miniapp/',
-    '/miniapp.html',
-    '/dashboard/miniapp',
-    '/dashboard/miniapp/',
-    '/dashboard/miniapp.html',
-    '/admin',
-    '/admin/',
-    '/dashboard/admin'
-  ], serveMiniAppHandler);
-
-  app.get(['/dashboard', '/dashboard/'], (req, res) => res.redirect('/miniapp'));
+  // Catch-all GET route for WebApp / MiniApp / Dashboard (prevents any 404 Not Found errors)
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/webhook') || req.path.startsWith('/downloads')) {
+      return next();
+    }
+    const dashboardFilePath = path.join(__dirname, '../dashboard', req.path);
+    if (fs.existsSync(dashboardFilePath) && fs.statSync(dashboardFilePath).isFile()) {
+      return res.sendFile(dashboardFilePath);
+    }
+    return serveMiniAppHandler(req, res);
+  });
 
   // ─── START BOT ────────────────────────────────────────────────────────────────
   const { bot } = require('../bot/index');
