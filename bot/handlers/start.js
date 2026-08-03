@@ -190,35 +190,55 @@ async function handleBackToMenu(bot, chatId, messageId, firstName) {
   const session = getSession(chatId);
   const caption  = buildCaption(firstName || 'Kawan');
   const keyboard = buildMainKeyboard(chatId);
+  const bannerUrl = process.env.BANNER_URL || '';
 
   // Jika main menu sebelumnya diturunkan ke teks (isPhoto === false) atau messageId hilang,
   // hapus pesan lama dan kirim ulang menu utama dengan foto banner agar branding tetap konsisten
   if (session.mainIsPhoto === false || !messageId) {
     if (messageId) bot.deleteMessage(chatId, messageId).catch(() => {});
     
+    const photoSource = cachedBannerFileId ? cachedBannerFileId : bannerUrl;
+    if (photoSource) {
+      try {
+        const photoMsg = await bot.sendPhoto(chatId, photoSource, {
+          caption,
+          parse_mode: 'HTML',
+          reply_markup: keyboard,
+        });
+
+        if (!cachedBannerFileId && photoMsg.photo && photoMsg.photo.length > 0) {
+          cachedBannerFileId = photoMsg.photo[photoMsg.photo.length - 1].file_id;
+        }
+        
+        session.mainMessageId = photoMsg.message_id;
+        session.mainIsPhoto   = true;
+
+        await db.collection('users').doc(String(chatId)).update({
+          mainMessageId: photoMsg.message_id,
+          mainIsPhoto: true
+        }).catch(() => {});
+        return;
+      } catch (e) {
+        console.error('Failed to restore main menu photo banner:', e.message);
+      }
+    }
+
+    // Fallback if photo banner is not available or failed
     try {
-      const photoSource = cachedBannerFileId ? cachedBannerFileId : BANNER_PATH;
-      const photoMsg = await bot.sendPhoto(chatId, photoSource, {
-        caption,
+      const textMsg = await bot.sendMessage(chatId, caption, {
         parse_mode: 'HTML',
         reply_markup: keyboard,
       });
-
-      if (!cachedBannerFileId && photoMsg.photo && photoMsg.photo.length > 0) {
-        cachedBannerFileId = photoMsg.photo[photoMsg.photo.length - 1].file_id;
-      }
-      
-      session.mainMessageId = photoMsg.message_id;
-      session.mainIsPhoto   = true;
-
-      // Simpan ke Firestore
+      session.mainMessageId = textMsg.message_id;
+      session.mainIsPhoto   = false;
       await db.collection('users').doc(String(chatId)).update({
-        mainMessageId: photoMsg.message_id,
-        mainIsPhoto: true
+        mainMessageId: textMsg.message_id,
+        mainIsPhoto: false
       }).catch(() => {});
       return;
     } catch (e) {
-      console.error('Failed to restore main menu photo banner:', e.message);
+      console.error('Failed to send fallback main menu text:', e.message);
+      return;
     }
   }
 
