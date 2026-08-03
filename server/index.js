@@ -111,17 +111,10 @@ const { verifyLicense } = require('./license');
   const { bot } = require('../bot/index');
   setBotInstance(bot);
 
-  // Set dynamic Telegram Chat Menu Button if valid HTTPS public domain is available
-  const currentBaseUrl = getBaseUrl();
-  if (currentBaseUrl.startsWith('https://') && !currentBaseUrl.includes('localhost') && !currentBaseUrl.includes('127.0.0.1')) {
-    bot.setChatMenuButton({
-      menu_button: JSON.stringify({
-        type: 'web_app',
-        text: '📱 Open App',
-        web_app: { url: `${currentBaseUrl}/miniapp` }
-      })
-    }).catch(err => console.error('Failed to set chat menu button:', err.message));
-  }
+  // Reset Telegram Chat Menu Button to default (remove 'Open App' button)
+  bot.setChatMenuButton({
+    menu_button: JSON.stringify({ type: 'default' })
+  }).catch(() => {});
 
   // ─── START SERVER ─────────────────────────────────────────────────────────────
   app.listen(PORT, () => {
