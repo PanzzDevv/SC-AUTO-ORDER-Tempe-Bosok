@@ -4,7 +4,7 @@ const { getSession } = require('../sessions');
 const { escapeHTML, editMain } = require('../utils');
 const path = require('path');
 
-const storeName = process.env.STORE_NAME || 'PanzzStore';
+const storeName = process.env.STORE_NAME || 'TEMPEBOSSOK Store OFFICIAL';
 
 const REPLY_KEYBOARD = {
   keyboard: [
@@ -15,21 +15,20 @@ const REPLY_KEYBOARD = {
 };
 
 function buildCaption(name) {
-  return `✨ <b>Halo, ${escapeHTML(name)}! Selamat datang di ${escapeHTML(storeName)}</b>
+  return `✨ <b>Halo, ${escapeHTML(name)}! Selamat datang di TEMPEBOSSOK Store OFFICIAL</b>
 
 🏪 Toko Akun TikTok otomatis terpercaya dengan pengiriman instan 24/7.
 
-📊 <b><u>Rate Akun TikTok</u></b>
-• <b>Kategori:</b> Fresh Usia 0 Day & Fresh Usia 2-8 Day
-• <b>Harga:</b> Rp 3.000 / akun
-• <b>Minimal Pembelian:</b> 10 akun
+📊 <b><u>Deskripsi Akun TikTok</u></b>
+• <b>Kategori:</b> Akun TikTok Fresh.
+• <b>Harga:</b> Bisa Langsung Cek Menu dibawah ("HARGA & PROMO") Bisa Berubah Sewaktu-Waktu.
+• <b>Minimal Pembelian:</b> 10 akun.
 
-<blockquote>⚠️ <b>Penting (Update Sistem TikTok):</b>
-Klaim voucher saat ini mulai random dari sistem TikTok.
-• Jika gagal klaim, harap jeda minimal 24 jam & lakukan restore akun.
-• Mohon pengertiannya untuk tidak komplain mengenai klaim voucher random ini.</blockquote>
+<blockquote>⚠️ <b>Penting (Jika Terjadi Update Sistem TikTok) maka:</b>
+• Untuk Kategori Akun (GARANSI) maka Garansi Hangus.
+• Maksimal Waktu Untuk Kategori Akun (GARANSI) Adalah 1x24 Jam, Terhitung Jam Kirim Akun.</blockquote>
 
-🛡️ <b>Ketentuan Garansi (24 Jam):</b>
+🛡️ <b>Ketentuan Untuk Akun (GARANSI) :</b>
 1. Akun terkena banned (sebelum digunakan)
 2. Akun sudah pernah digunakan orang lain
 3. Tidak ada voucher ongkir pada akun
