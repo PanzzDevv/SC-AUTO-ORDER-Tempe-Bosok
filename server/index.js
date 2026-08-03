@@ -90,16 +90,42 @@ const { verifyLicense } = require('./license');
   app.get('/', (req, res) => res.redirect('/miniapp'));
 
   // Serve Mini App (inject ADMIN_IDS so frontend can do local check)
-  app.get('/miniapp', serveHtmlWithStoreName(path.join(__dirname, '../dashboard/miniapp.html'), (html) => {
+  const serveMiniAppHandler = serveHtmlWithStoreName(path.join(__dirname, '../dashboard/miniapp.html'), (html) => {
     return html.replace(
       'window.__ADMIN_IDS__ || \'\'',
       `'${process.env.ADMIN_TELEGRAM_ID || ''}'`
     );
-  }));
+  });
+
+  app.get([
+    '/miniapp',
+    '/miniapp/',
+    '/miniapp.html',
+    '/dashboard/miniapp',
+    '/dashboard/miniapp/',
+    '/dashboard/miniapp.html',
+    '/admin',
+    '/admin/',
+    '/dashboard/admin'
+  ], serveMiniAppHandler);
+
+  app.get(['/dashboard', '/dashboard/'], (req, res) => res.redirect('/miniapp'));
 
   // ─── START BOT ────────────────────────────────────────────────────────────────
   const { bot } = require('../bot/index');
   setBotInstance(bot);
+
+  // Set dynamic Telegram Chat Menu Button if valid HTTPS public domain is available
+  const currentBaseUrl = getBaseUrl();
+  if (currentBaseUrl.startsWith('https://') && !currentBaseUrl.includes('localhost') && !currentBaseUrl.includes('127.0.0.1')) {
+    bot.setChatMenuButton({
+      menu_button: JSON.stringify({
+        type: 'web_app',
+        text: '📱 Open App',
+        web_app: { url: `${currentBaseUrl}/miniapp` }
+      })
+    }).catch(err => console.error('Failed to set chat menu button:', err.message));
+  }
 
   // ─── START SERVER ─────────────────────────────────────────────────────────────
   app.listen(PORT, () => {
