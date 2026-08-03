@@ -124,7 +124,7 @@ const { verifyLicense } = require('./license');
   }
 
   // ─── START SERVER ─────────────────────────────────────────────────────────────
-  app.listen(PORT, () => {
+  app.listen(PORT, '0.0.0.0', () => {
     const currentBaseUrl = getBaseUrl();
     console.log(`🚀 ${process.env.STORE_NAME || 'PanzzStore'} Server running on ${currentBaseUrl}`);
     console.log(`📊 Dashboard: ${currentBaseUrl}/dashboard`);
