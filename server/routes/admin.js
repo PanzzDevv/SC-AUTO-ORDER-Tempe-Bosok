@@ -288,8 +288,10 @@ async function triggerBackgroundUpload() {
   }
 }
 
-// Auto-run trigger on startup to resume any pending uploads
-triggerBackgroundUpload().catch(console.error);
+// Auto-run trigger on startup to resume any pending uploads (only in persistent server mode)
+if (!process.env.VERCEL && process.env.DISABLE_BOT_POLLING !== 'true') {
+  triggerBackgroundUpload().catch(console.error);
+}
 
 // ─── PRICES ───────────────────────────────────────────────────────────────────
 router.get('/prices', adminAuth, async (req, res) => {
