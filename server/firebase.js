@@ -47,23 +47,68 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
+// ─── IN-MEMORY CACHE SYSTEM ──────────────────────────────────────────────────
+// Cache sederhana berbasis TTL untuk mengurangi reads Firestore secara drastis.
+const _cache = {};
+
+function cacheGet(key) {
+  const entry = _cache[key];
+  if (!entry) return null;
+  if (Date.now() > entry.expireAt) {
+    delete _cache[key];
+    return null;
+  }
+  return entry.data;
+}
+
+function cacheSet(key, data, ttlSeconds) {
+  _cache[key] = {
+    data,
+    expireAt: Date.now() + (ttlSeconds * 1000),
+  };
+}
+
+function cacheInvalidate(keyOrPrefix) {
+  if (_cache[keyOrPrefix]) {
+    delete _cache[keyOrPrefix];
+    return;
+  }
+  for (const k of Object.keys(_cache)) {
+    if (k.startsWith(keyOrPrefix)) {
+      delete _cache[k];
+    }
+  }
+}
+
+// Cache TTL constants (dalam detik)
+const CACHE_TTL = {
+  ORDER_STATS: 120,   // 2 menit
+  ALL_STOCK: 60,      // 1 menit
+  STOCK_COUNT: 60,    // 1 menit
+  PRICES: 300,        // 5 menit
+  ALL_USERS: 60,      // 1 menit
+  USER: 30,           // 30 detik
+};
+
 // ─── USERS ────────────────────────────────────────────────────────────────────
 async function getUser(telegramId) {
+  const cacheKey = `user_${telegramId}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
   const doc = await db.collection('users').doc(String(telegramId)).get();
   if (!doc.exists) return null;
   const data = doc.data();
-  
-  // Hitung jumlah order sukses (done) secara dinamis
-  const ordersSnapshot = await db.collection('orders')
-    .where('userId', '==', String(telegramId))
-    .where('status', '==', 'done')
-    .get();
 
-  return {
+  // OPTIMIZED: Ambil totalOrders dari field dokumen (bukan query semua orders setiap read)
+  const result = {
     ...data,
     saldo: data.saldo !== undefined ? data.saldo : (data.balance !== undefined ? data.balance : 0),
-    totalOrders: ordersSnapshot.size
+    totalOrders: data.totalOrders !== undefined ? data.totalOrders : 0
   };
+
+  cacheSet(cacheKey, result, CACHE_TTL.USER);
+  return result;
 }
 
 async function createUser(telegramId, username, firstName) {
@@ -76,6 +121,7 @@ async function createUser(telegramId, username, firstName) {
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   };
   await db.collection('users').doc(String(telegramId)).set(userData);
+  cacheInvalidate('all_users');
   return userData;
 }
 
@@ -96,8 +142,7 @@ async function getUserByUsername(username) {
 
   if (snapshot.empty) return null;
   const doc = snapshot.docs[0];
-  const telegramId = doc.id;
-  return getUser(telegramId);
+  return getUser(doc.id);
 }
 
 async function updateUserSaldo(telegramId, amount) {
@@ -105,6 +150,8 @@ async function updateUserSaldo(telegramId, amount) {
     saldo: admin.firestore.FieldValue.increment(amount),
     balance: admin.firestore.FieldValue.increment(amount),
   });
+  cacheInvalidate(`user_${telegramId}`);
+  cacheInvalidate('all_users');
 }
 
 // ─── ACCOUNTS (STOCK) ─────────────────────────────────────────────────────────
@@ -119,12 +166,30 @@ async function getAvailableAccounts(type, garansi, qty) {
 }
 
 async function getStockCount(type, garansi) {
-  const snapshot = await db.collection('accounts')
-    .where('type', '==', type)
-    .where('garansi', '==', garansi)
-    .where('status', '==', 'available')
-    .get();
-  return snapshot.size;
+  const cacheKey = `stock_count_${type}_${garansi}`;
+  const cached = cacheGet(cacheKey);
+  if (cached !== null) return cached;
+
+  let count = 0;
+  try {
+    const countSnap = await db.collection('accounts')
+      .where('type', '==', type)
+      .where('garansi', '==', garansi)
+      .where('status', '==', 'available')
+      .count()
+      .get();
+    count = countSnap.data().count;
+  } catch (_) {
+    const snapshot = await db.collection('accounts')
+      .where('type', '==', type)
+      .where('garansi', '==', garansi)
+      .where('status', '==', 'available')
+      .get();
+    count = snapshot.size;
+  }
+
+  cacheSet(cacheKey, count, CACHE_TTL.STOCK_COUNT);
+  return count;
 }
 
 async function getStockItems(type, garansi) {
@@ -142,6 +207,9 @@ async function getStockItems(type, garansi) {
 }
 
 async function getAllStock() {
+  const cached = cacheGet('all_stock');
+  if (cached) return cached;
+
   const categories = [
     { type: 'muda', garansi: true,  label: 'Akun Tiktok Fresh Usia 0 Day + Garansi' },
     { type: 'muda', garansi: false, label: 'Akun Tiktok Fresh Usia 0 Day + No Garansi' },
@@ -161,6 +229,8 @@ async function getAllStock() {
       })) 
     });
   }
+
+  cacheSet('all_stock', result, CACHE_TTL.ALL_STOCK);
   return result;
 }
 
@@ -184,9 +254,6 @@ async function deleteStockCategory(type, garansi) {
 
     const data = doc.data();
 
-    // Hapus dari Telegram Channel jika ada telegramFileId (opsional, bisa dibiarkan saja)
-    // if (data.telegramFileId) { ... }
-
     // Fallback: hapus dari local jika masih ada storagePath lama
     if (data.storagePath) {
       try {
@@ -201,6 +268,10 @@ async function deleteStockCategory(type, garansi) {
   if (!snapshot.empty) {
     await batch.commit();
   }
+
+  // Invalidate stock cache
+  cacheInvalidate('all_stock');
+  cacheInvalidate('stock_count');
 }
 
 async function markAccountsSold(accountIds) {
@@ -212,19 +283,14 @@ async function markAccountsSold(accountIds) {
     });
   });
   await batch.commit();
+
+  // Invalidate stock cache
+  cacheInvalidate('all_stock');
+  cacheInvalidate('stock_count');
 }
 
-/**
- * Tambah akun baru ke Firestore.
- * @param {string} type - 'muda' atau 'tua'
- * @param {boolean} garansi
- * @param {string} telegramFileId - Telegram File ID
- * @param {string} fileName - nama file asli
- * @param {string} [storagePath] - (legacy) path lokal lama, opsional
- * @param {string} [fileHash] - hash SHA-256 file
- */
 async function addAccount(type, garansi, telegramFileId, fileName, storagePath = null, fileHash = '') {
-  return await db.collection('accounts').add({
+  const result = await db.collection('accounts').add({
     type,
     garansi,
     status: 'available',
@@ -234,6 +300,11 @@ async function addAccount(type, garansi, telegramFileId, fileName, storagePath =
     ...(storagePath ? { storagePath } : {}),
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
+
+  // Invalidate stock cache
+  cacheInvalidate('all_stock');
+  cacheInvalidate('stock_count');
+  return result;
 }
 
 // ─── ORDERS ───────────────────────────────────────────────────────────────────
@@ -253,6 +324,7 @@ async function createOrder(userId, username, type, garansi, qty, totalPrice, pay
     ...extraData,
   };
   const ref = await db.collection('orders').add(orderData);
+  cacheInvalidate('order_stats');
   return { id: ref.id, ...orderData };
 }
 
@@ -290,6 +362,25 @@ async function updateOrderStatus(orderId, status, extra = {}) {
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     ...extra,
   });
+
+  // OPTIMIZED: Jika order selesai (done), increment totalOrders user langsung
+  if (status === 'done') {
+    try {
+      const orderDoc = await db.collection('orders').doc(orderId).get();
+      if (orderDoc.exists) {
+        const userId = String(orderDoc.data().userId);
+        await db.collection('users').doc(userId).update({
+          totalOrders: admin.firestore.FieldValue.increment(1)
+        });
+        cacheInvalidate(`user_${userId}`);
+        cacheInvalidate('all_users');
+      }
+    } catch (err) {
+      console.error('Error incrementing user totalOrders:', err.message);
+    }
+  }
+
+  cacheInvalidate('order_stats');
 }
 
 async function getAllOrders(limitN = 50) {
@@ -301,42 +392,84 @@ async function getAllOrders(limitN = 50) {
 }
 
 async function getOrderStats() {
+  const cached = cacheGet('order_stats');
+  if (cached) return cached;
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+
+  let totalOrders = 0;
+  let totalRevenue = 0;
+  let todayOrders = 0;
+  let todayRevenue = 0;
+
+  // Today stats
   const todaySnapshot = await db.collection('orders')
     .where('status', '==', 'done')
     .where('createdAt', '>=', admin.firestore.Timestamp.fromDate(today))
     .get();
-  const totalSnapshot = await db.collection('orders')
-    .where('status', '==', 'done')
-    .get();
-  let todayRevenue = 0;
   todaySnapshot.docs.forEach(d => { todayRevenue += d.data().totalPrice || 0; });
-  let totalRevenue = 0;
-  totalSnapshot.docs.forEach(d => { totalRevenue += d.data().totalPrice || 0; });
-  return {
-    todayOrders: todaySnapshot.size,
+  todayOrders = todaySnapshot.size;
+
+  // Total stats dengan count() aggregation
+  try {
+    const countResult = await db.collection('orders')
+      .where('status', '==', 'done')
+      .count()
+      .get();
+    totalOrders = countResult.data().count;
+
+    const totalSnapshot = await db.collection('orders')
+      .where('status', '==', 'done')
+      .get();
+    totalSnapshot.docs.forEach(d => { totalRevenue += d.data().totalPrice || 0; });
+  } catch (_) {
+    const totalSnapshot = await db.collection('orders')
+      .where('status', '==', 'done')
+      .get();
+    totalOrders = totalSnapshot.size;
+    totalSnapshot.docs.forEach(d => { totalRevenue += d.data().totalPrice || 0; });
+  }
+
+  const result = {
+    todayOrders,
     todayRevenue,
-    totalOrders: totalSnapshot.size,
+    totalOrders,
     totalRevenue,
   };
+
+  cacheSet('order_stats', result, CACHE_TTL.ORDER_STATS);
+  return result;
 }
 
 // ─── PRICES ───────────────────────────────────────────────────────────────────
 async function getPrices() {
-  const doc = await db.collection('settings').doc('prices').get();
-  if (doc.exists) return doc.data();
-  // Default prices
-  return {
+  const cached = cacheGet('prices');
+  if (cached) return cached;
+
+  let prices = {
     muda_garansi: 50000,
     muda_no_garansi: 30000,
     tua_garansi: 80000,
     tua_no_garansi: 60000,
   };
+
+  try {
+    const doc = await db.collection('settings').doc('prices').get();
+    if (doc.exists) {
+      prices = { ...prices, ...doc.data() };
+    }
+  } catch (err) {
+    console.error('Error reading prices:', err.message);
+  }
+
+  cacheSet('prices', prices, CACHE_TTL.PRICES);
+  return prices;
 }
 
 async function updatePrices(prices) {
   await db.collection('settings').doc('prices').set(prices, { merge: true });
+  cacheInvalidate('prices');
 }
 
 function getPriceKey(type, garansi) {
@@ -344,21 +477,13 @@ function getPriceKey(type, garansi) {
 }
 
 async function getAllUsers() {
-  const usersSnapshot = await db.collection('users').get();
-  
-  // Ambil semua order sukses (done) untuk menghitung totalOrders per user secara akurat
-  const ordersSnapshot = await db.collection('orders')
-    .where('status', '==', 'done')
-    .get();
-    
-  const orderCounts = {};
-  ordersSnapshot.docs.forEach(d => {
-    const o = d.data();
-    const uId = String(o.userId);
-    orderCounts[uId] = (orderCounts[uId] || 0) + 1;
-  });
+  const cached = cacheGet('all_users');
+  if (cached) return cached;
 
-  return usersSnapshot.docs.map(d => {
+  const usersSnapshot = await db.collection('users').get();
+
+  // OPTIMIZED: Tidak query orders lagi, gunakan totalOrders yang tersimpan di doc user
+  const result = usersSnapshot.docs.map(d => {
     const data = d.data();
     const uId = String(data.telegramId || d.id);
     return {
@@ -366,18 +491,22 @@ async function getAllUsers() {
       telegramId: uId,
       ...data,
       saldo: data.saldo !== undefined ? data.saldo : (data.balance !== undefined ? data.balance : 0),
-      totalOrders: orderCounts[uId] || 0,
+      totalOrders: data.totalOrders || 0,
       createdAt: data.createdAt ? (typeof data.createdAt.toDate === 'function' ? data.createdAt.toDate().toISOString() : data.createdAt) : null
     };
   });
+
+  cacheSet('all_users', result, CACHE_TTL.ALL_USERS);
+  return result;
 }
 
 async function setUserSaldo(telegramId, newSaldo) {
-  // Update both 'saldo' and 'balance' for backward compatibility with older database schemas
   await db.collection('users').doc(String(telegramId)).update({
     saldo: Number(newSaldo),
     balance: Number(newSaldo)
   });
+  cacheInvalidate(`user_${telegramId}`);
+  cacheInvalidate('all_users');
 }
 
 async function saveHelpTicket(adminMessageId, userId) {
@@ -399,4 +528,5 @@ module.exports = {
   createOrder, getOrder, getOrderByPanzzpayInvoiceId, getOrderByPakasirId, updateOrderStatus, getAllOrders, getOrderStats,
   getPrices, updatePrices, getPriceKey,
   saveHelpTicket, getUserIdFromHelpTicket,
+  cacheGet, cacheSet, cacheInvalidate, CACHE_TTL,
 };
