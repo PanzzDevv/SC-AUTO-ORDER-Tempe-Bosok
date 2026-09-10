@@ -219,7 +219,12 @@ router.post('/stock/upload', adminAuth, upload.array('files', 500), async (req, 
 
     const { uploadFileToTelegram } = require('../telegramStorage');
 
-    for (const file of req.files) {
+    const files = req.files || [];
+    if (files.length === 0) {
+      return res.status(400).json({ error: 'Tidak ada file akun yang terkirim ke server' });
+    }
+
+    for (const file of files) {
       try {
         // Hitung SHA-256 hash file temp
         const fileHash = await getFileHash(file.path);
@@ -231,7 +236,7 @@ router.post('/stock/upload', adminAuth, upload.array('files', 500), async (req, 
           .get();
 
         if (!existingSnapshot.empty) {
-          throw new Error('Duplicate account file detected');
+          throw new Error('Akun duplikat (file sudah pernah diupload sebelumnya)');
         }
 
         // Upload langsung ke Telegram Storage
@@ -259,6 +264,7 @@ router.post('/stock/upload', adminAuth, upload.array('files', 500), async (req, 
       ...(hasErrors ? { errors, error: errors.map(e => `${e.fileName}: ${e.error}`).join(' | ') } : {}),
     });
   } catch (e) {
+    console.error('[Stock Upload Error]:', e);
     res.status(500).json({ error: e.message });
   }
 });
